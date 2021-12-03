@@ -14,14 +14,21 @@
 # phenology = u + bx + pcs + cov. + .. e 
 #
 #
+# going to use all the covariates in GEMMA, run each phenotype separately, 
+# also take averages of the mutliple year observations
+
+
+
+
 ###############################
+
+
 # set up environment
-
-
 library(tidyverse)
-library(caret)
-library(reshape2)
-
+library(caret) #makes one-hot encoding easy
+library(reshape2) #for melt
+library(cowplot)
+theme_set(theme_cowplot())
 
 setwd("~/safedata/slhateley/aspen/")
 
@@ -33,14 +40,15 @@ phenology <- read_csv("data/data_for_heritability.csv")
 
 site_code <- phenology[1]
 vars <- phenology[-1] #data to one-hot encode
-tmp <- dummyVars("~.", data=vars, fullRank=T) #fullRank=T since we want to avoid fully correlated covariates
-tmpdf <- data.frame(predict(tmp, newdata = vars))
-pheno_coded <- cbind(site_code, tmpdf)
+tmp <- dummyVars("~.", data=vars, fullRank=F) #set fullRank=F for the covariate analaysis; later fullRank=T for outputting covariates, since we want to avoid fully correlated covariates 
+tmpdf <- data.frame(predict(tmp, newdata = vars)) #put results from one-hot encoding into dataframe again
+pheno_coded <- cbind(site_code, tmpdf) # add back the ids
 
-rm(tmp, tmpdf, vars, site_code)
+rm(tmp, tmpdf)
 
 #######
 # check correlations between phenology variables
+# use fullRank=F on cavariates
 #######
 
 
@@ -72,11 +80,11 @@ ggheatmap <- ggplot(melted_var_cor, aes(Var2, Var1, fill = value))+
                        name="Pearson\nCorrelation") +
   theme_minimal()+ # minimal theme
   theme(axis.text.x = element_text(angle = 45, vjust = 1, 
-                                   size = 12, hjust = 1))+
+                                   size = 8, hjust = 1))+
   coord_fixed()
 # Print the heatmap
 print(ggheatmap)
-
+ggsave("results/phenology_correlation.pdf", ggheatmap)
 
 #check for normality of phenology
 names <- colnames(phenology)
@@ -84,7 +92,7 @@ phenology.continuous <- phenology %>%
   select(Site_Code, x, y, Elevation, Cos.aspect, Slope, Summer.Insolation, 
          DBH.mean, fraction_aspen, names[grep("pheno", names)])
 
-shapiro <- sapply(phenology.continuous[-1], shapiro.test) %>% as.tibble()
+shapiro <- sapply(phenology.continuous[-1], shapiro.test) %>% as.tibble() # shapiro wilkes nomality test
 res1 <- shapiro[1,] %>%
   pivot_longer(colnames(shapiro), names_to = "variable", values_to = "stat")
 res2 <- shapiro[2,] %>%
@@ -92,6 +100,7 @@ res2 <- shapiro[2,] %>%
 res_shapiro <- cbind(res1,res2[,2])
 res_shapiro$stat <- res_shapiro$stat %>% gsub("^c.*= ","",.) %>% gsub(")","",.)
 res_shapiro$pval <- unlist(res_shapiro$pval)
+write_tsv(res_shapiro, "results/shapiro_wilk.tsv")
 
 pheno.gathered.continuous <- phenology.continuous %>%
   gather(key = "variable", value = "value",
@@ -100,14 +109,43 @@ pheno.gathered.continuous <- phenology.continuous %>%
 ggplot(pheno.gathered.continuous, aes(x = value)) +
   geom_histogram() +
   facet_wrap(~variable, scales = 'free')
+ggsave("results/phenology_histogram.pdf")
+
+### Check for outliers ###
+
+phenology.continuous[sapply(phenology.continuous, is.null)] <- NA
+pca <- prcomp(na.omit(phenology.continuous[-1]), scale. = TRUE, rank. =10)
+U <- pca$x
+pc_plot <- qplot(U[, 1], U[, 2], xlab = 'PC 1', ylab = "PC 2", main = "aspen phenology PCA") + coord_equal()
+print(pc_plot)
+ggsave("results/pc1pc2.pdf", pc_plot)
+apply(U, 2, function(x) which( abs(x - mean(x)) > (6 * sd(x)) )) #> 6sd from mean
+# integer(0) no outliers are 6sd away from mean (so not that bad, but tis is somewhat arbitrary)
 
 #############
-#output environmental variables to run in GEMMA LMM
+# Prep files for LMM input
 #############
-write_tsv(as.tibble(pheno_coded$Site_Code), "data/aspen.ids", col_names = FALSE)
-write_tsv(select(pheno_coded, names[grep("pheno", names)]), "data/phenotypes.tsv")
-write_tsv(pheno_coded[2:17], "data/covariates.tsv", col_names = FALSE)
-write_tsv(pheno_coded[0,2:17], "data/covariates.labels")
+
+# change one-hot encoding to fullRank=T to remove fully-correlated columns
+tmp <- dummyVars("~.", data=vars, fullRank=T) # fullRank=T for outputting covariates, since we want to avoid fully correlated covariates 
+tmpdf <- data.frame(predict(tmp, newdata = vars)) #put results from one-hot encoding into dataframe again
+pheno_coded <- cbind(site_code, tmpdf) # add back the ids
+
+# take averages of the annual data and add to list of phenotypes
+
+pheno_coded$pheno.mean.OGI <- rowMeans(pheno_coded[, names[grep("OGI", names)]], na.rm=T)
+pheno_coded$pheno.mean.OGMn <- rowMeans(pheno_coded[, names[grep("OGMn", names)]], na.rm=T)
+pheno_coded$pheno.mean.EVImax <- rowMeans(pheno_coded[, names[grep("EVImax", names)]], na.rm=T)
+pheno_coded$pheno.mean.GSL <- rowMeans(pheno_coded[, names[grep("GSL", names)]], na.rm=T)
+pheno_coded$intercept <- 1 # needed for GEMMA covariate file format
+
+#############
+# output environmental variables to run in GEMMA LMM
+#############
+write_tsv(as.tibble(pheno_coded$Site_Code), "data/aspen.ids", col_names = FALSE) # output sample ids
+write_tsv(select(pheno_coded, names[grep("pheno", names)]), "data/phenotypes.tsv") # output phenology phenos
+write_tsv(select(pheno_coded, intercept, colnames(pheno_coded[2:17])), "data/covariates.tsv", col_names = F) # output covariates
+write_tsv(pheno_coded[0, c(39,2:17)], "data/covariates.labels") # output covariate names
 
 
 '''
