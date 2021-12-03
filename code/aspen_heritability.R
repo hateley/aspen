@@ -37,6 +37,7 @@ setwd("~/safedata/slhateley/aspen/")
 ###############################
 # load data
 phenology <- read_csv("data/data_for_heritability.csv")
+names <- colnames(phenology)
 
 site_code <- phenology[1]
 vars <- phenology[-1] #data to one-hot encode
@@ -45,6 +46,11 @@ tmpdf <- data.frame(predict(tmp, newdata = vars)) #put results from one-hot enco
 pheno_coded <- cbind(site_code, tmpdf) # add back the ids
 
 rm(tmp, tmpdf)
+
+
+###############################
+# data checks
+
 
 #######
 # check correlations between phenology variables
@@ -87,7 +93,6 @@ print(ggheatmap)
 ggsave("results/phenology_correlation.pdf", ggheatmap)
 
 #check for normality of phenology
-names <- colnames(phenology)
 phenology.continuous <- phenology %>%
   select(Site_Code, x, y, Elevation, Cos.aspect, Slope, Summer.Insolation, 
          DBH.mean, fraction_aspen, names[grep("pheno", names)])
@@ -122,7 +127,7 @@ ggsave("results/pc1pc2.pdf", pc_plot)
 apply(U, 2, function(x) which( abs(x - mean(x)) > (6 * sd(x)) )) #> 6sd from mean
 # integer(0) no outliers are 6sd away from mean (so not that bad, but tis is somewhat arbitrary)
 
-#############
+###############################
 # Prep files for LMM input
 #############
 
@@ -139,11 +144,19 @@ pheno_coded$pheno.mean.EVImax <- rowMeans(pheno_coded[, names[grep("EVImax", nam
 pheno_coded$pheno.mean.GSL <- rowMeans(pheno_coded[, names[grep("GSL", names)]], na.rm=T)
 pheno_coded$intercept <- 1 # needed for GEMMA covariate file format
 
+write_tsv(as.tibble(pheno_coded$Site_Code), "data/aspen.ids", col_names = FALSE) # output initial set of sample ids
+
+# subset to samples with genotypes
+geno_fam <- read_table2("data/plink_cleanup_2.fam", col_names = F)
+pheno_coded <- pheno_coded %>% filter(Site_Code %in% geno_fam$X2)
+
+
 #############
 # output environmental variables to run in GEMMA LMM
 #############
-write_tsv(as.tibble(pheno_coded$Site_Code), "data/aspen.ids", col_names = FALSE) # output sample ids
-write_tsv(select(pheno_coded, names[grep("pheno", names)]), "data/phenotypes.tsv") # output phenology phenos
+
+write_tsv(select(pheno_coded, names[grep("pheno", names)]), "data/phenotypes.tsv", col_names = F) # output phenology phenos
+write_tsv(select(pheno_coded, names[grep("pheno", names)])[0,], "data/phenotypes.labels")
 write_tsv(select(pheno_coded, intercept, colnames(pheno_coded[2:17])), "data/covariates.tsv", col_names = F) # output covariates
 write_tsv(pheno_coded[0, c(39,2:17)], "data/covariates.labels") # output covariate names
 
@@ -154,11 +167,15 @@ notes
 We will need:
   the genomic data, which we have already:
     aspen250.bed/bim/fam/cXX.txt
+    aspen250 is better quality but less snps than aspen10
+    (really this stuff should be re-called now that there is a reference)
+    also there are replicates of the trees so we could pool that sequence and call together for better coverage.
   the matched phenology value for each of the trees (503 trees)
    data_for_heritability.csv
   any potential confounding factor that could affect phenology: 
     slope, altitude, soil, etc. (this will capture variation in the environment across trees so we can account for it).
     also data_for_heritability.csv
+    
 
 ___________________
 
@@ -213,5 +230,14 @@ for co-variation between predictors (linkage disequilibrium and population struc
 by the K kinship matrix across individuals: u ~ Normal(µ=0, σ=KVa); where Va represents the overall variance in the trait 
 explained by genetics. The remaining variance in the trait is captured by the error ε~Normal(µ=0, σ=Ve). We then calculate
 the broad-sense heritability (h2) of each phenology metric as the variance in y explained by variance in X.
+
+##################
+
+I also had to remove the replicates from the dataset, and used the aspen10 fam file to do this, since it still had the correct names.
+If I recall genotypes using the reference genome now available, I should also combine sequence from these replicates so we have more data.
+
+Also not all of these samples are ones that we have genotype data for. Only 488 samples:
+Of the 489 samples with genotypes, 1 does not have phenology data: RGBXO
+Of the 503 samples with phenology data, 14 do not have geno data
 
 
