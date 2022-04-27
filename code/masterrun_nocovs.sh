@@ -7,7 +7,7 @@
 for i in `seq 1 20`;
 do
  echo item: $i
- sbatch ./rungwas.sh $i
+ sbatch ./rungwas_nocovs.sh $i
 done
 
 

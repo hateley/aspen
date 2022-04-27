@@ -4,7 +4,7 @@
 #SBATCH --mem-per-cpu=6G
 #SBATCH --partition=DPB
 #SBATCH --job-name=aspen_phenol$1
-#SBATCH --output=aspen_phenol$1.log
+#SBATCH --output=aspen_phenol.log
 
-gemma -bfile ../data/aspen_phenology -n $1  -lmm 2 -k ../data/aspen_phenology.cXX.txt -c ../data/covariates.tsv -o  ../resutls/aspen_phenol$1
+gemma -bfile ../data/aspen_phenology -miss 1.0 -maf 0.0 -n $1 -lmm 2 -k ../data/aspen_phenology.cXX.txt -c ../data/covariates.tsv -o aspen_phenol$1
 
