@@ -6,19 +6,15 @@
 # Heritability of traits
 # 
 # 1) remove confounders
-#    phenology = f(elve, slope, ...) + e resid + cytotype (or model cytotype separately)
+#    phenology = f(elve, slope, snowmelt...) + e resid (model cytotype separately)
 # 2) map residuals
-#    e phenology resids = u + bx + Z(pop struc) + e (or use kin.blup)
+#    e phenology resids = u + bx + Z(pop struc) + e (using TCGA)
 #
 # phenology = u + bx + pcs + cov. + .. e 
 #
-# GEMMA alternative method:
-# use all the covariates in GEMMA, run each phenotype separately, 
-# also take averages of the multiple year observations
-
 # sets to run heritability on:
 # diploids, triploids, all
-# all aspen coverage, greater than 20%
+# all aspen coverage, greater than 25%, 50%
 
 
 ###############################
@@ -34,14 +30,12 @@ library(ggpubr)
 library(grid)
 theme_set(theme_cowplot())
 
-#setwd("~/safedata/slhateley/aspen/")
-
 
 ##############################################################
 # load data
 ##############################################################
 
-phenology <- read_csv("data/data_for_heritability.csv")
+phenology <- read_csv("data/data_for_heritability_updated.csv")
 names <- colnames(phenology)
 
 site_code <- phenology[1]
@@ -61,7 +55,7 @@ pheno_coded <- cbind(site_code, data.frame(predict(
 ####### check correlations between phenology variables #######
 # use fullRank=F on covariates
 
-var_cor <- cor(pheno_coded[-1], use="pairwise.complete.obs")
+var_cor <- cor(pheno_coded[-1], use="pairwise.complete.obs", method="pearson")
 
 # Get upper triangle of the correlation matrix
 get_upper_tri <- function(cormat){
@@ -95,146 +89,18 @@ ggheatmap <- ggplot(melted_var_cor, aes(Var2, Var1, fill = value)) +
 
 # Print the heatmap
 print(ggheatmap)
-ggsave("results/phenology_correlation.png", ggheatmap)
-ggsave("results/phenology_correlation.pdf", ggheatmap)
-
-
-
-#check for normality of phenology
-phenology.continuous <- phenology %>%
-  select(Site_Code, x, y, Elevation, Cos.aspect, Slope, Summer.Insolation, 
-         DBH.mean, fraction_aspen, names[grep("pheno", names)])
-
-shapiro <- sapply(phenology.continuous[-1], shapiro.test) %>% as.tibble() # shapiro wilkes nomality test
-res1 <- shapiro[1,] %>%
-  pivot_longer(colnames(shapiro), names_to = "variable", values_to = "stat")
-res2 <- shapiro[2,] %>%
-  pivot_longer(colnames(shapiro), names_to = "variable", values_to = "pval")
-res_shapiro <- cbind(res1,res2[,2])
-res_shapiro$stat <- res_shapiro$stat %>% gsub("^c.*= ","",.) %>% gsub(")","",.)
-res_shapiro$pval <- unlist(res_shapiro$pval)
-write_tsv(res_shapiro, "results/shapiro_wilk.tsv")
-
-pheno.gathered.continuous <- phenology.continuous %>%
-  gather(key = "variable", value = "value",
-         -Site_Code)
-
-ggplot(pheno.gathered.continuous, aes(x = value)) +
-  geom_histogram() +
-  facet_wrap(~variable, scales = 'free') +
-  theme(strip.text.x = element_text(size=6), axis.text=element_text(size=6))
-ggsave("results/phenology_histogram.png")
-
-### Check for outliers ###
-
-phenology.continuous[sapply(phenology.continuous, is.null)] <- NA
-pca <- prcomp(na.omit(phenology.continuous[-1]), scale. = TRUE, rank. =10)
-U <- pca$x
-pc_plot <- qplot(U[, 1], U[, 2], xlab = 'PC 1', ylab = "PC 2", main = "aspen phenology PCA") + coord_equal()
-print(pc_plot)
-ggsave("results/phenologies_pc1pc2.png", pc_plot)
-apply(U, 2, function(x) which( abs(x - mean(x)) > (6 * sd(x)) )) #> 6sd from mean
-# integer(0) no outliers are 6sd away from mean (so not that bad, but tis is somewhat arbitrary)
-
-###########
-# some more exploration
-
-#pheno_vals <- apply(select(pheno_coded, all_of(phenos)), 2, function(x) {length(which(!is.na(x)))})
-#na_covariates <- apply(pheno_coded, 2, function(x) {length(which(is.na(x)))})
-
-#look at relatedness matrix pca
-kinship <- read_tsv("data/GEMMA_files/aspen_phenology.cXX.txt", col_names = F)
-
-kin_pca <- prcomp(kinship, scale. = TRUE, rank. =10)
-U <- kin_pca$x
-Udf <- tibble(PC1=U[,1],PC2=U[,2])
-pc_plot <- qplot(U[, 1], U[, 2], xlab = 'PC 1', ylab = "PC 2", main = "aspen kinship PCA") + coord_equal()
-print(pc_plot)
-
-ggplot(data=Udf, aes(x=PC1, y=PC2)) +
-  geom_point() +
-  labs(x="PC 1", y="PC 2")
-
-ggsave("results/kinship_pc1pc2.png", pc_plot)
-summ <- summary(kin_pca)
-summ # output percent variance explained. 1 and 2 are each ~10%
-#this looks a lot like the genetic distance by geographic distance plots that Moi was getting during the hackathon
-
-
+ggsave("results/phenology_correlation_snowmelt.png", ggheatmap)
+ggsave("results/phenology_correlation_snowmelt.pdf", ggheatmap)
 
 
 #plot xy coordinates
 ggplot(data=phenology, aes(x=x, y=y)) +
   geom_point()
 
-# look at relationship between predictors and phenologies
-
-plot_cov2phenol_relationship <- function(long_df){
-  df_list = list()
-  for (p in c("GSL", "OGI", "OGMn", "EVImax")){
-    print(p)
-    df <- long_df %>% select(c(1:18, p))
-    df.gathered <- df %>%
-      as_tibble() %>%
-      gather(key = "variable", value = "value",
-             -Site_Code, -p)
-    df_list[[p]] <- df.gathered
-  }
-  return(df_list)
-}
-
-plot_dfs <- plot_cov2phenol_relationship(long_coded_df)
-
-
-plot <- ggplot(plot_dfs[["GSL"]], aes(x = value, y = GSL)) +
-  geom_point(alpha = 0.3) +
-  facet_wrap(~variable, scales = 'free') +
-  geom_smooth(method = "lm", se = FALSE, color='red') +
-  stat_cor(aes(label = ..rr.label..), color = "red", geom = "label", size=3) +
-  xlab("covariate relation to GSL")
-  
-plot
-ggsave("results/cov_phen_scatterplots/GSL.pdf", plot, height = 6, width=10)
-
-plot <- ggplot(plot_dfs[["OGI"]], aes(x = value, y = OGI)) +
-  geom_point(alpha = 0.3) +
-  facet_wrap(~variable, scales = 'free') +
-  geom_smooth(method = "lm", se = FALSE, color='red') +
-  stat_cor(aes(label = ..rr.label..), color = "red", geom = "label", size=3) +
-  xlab("covariate relation to OGI")
-
-plot
-ggsave("results/cov_phen_scatterplots/OGI.pdf", plot, height = 6, width=10)
-
-plot <- ggplot(plot_dfs[["OGMn"]], aes(x = value, y = OGMn)) +
-  geom_point(alpha = 0.3) +
-  facet_wrap(~variable, scales = 'free') +
-  geom_smooth(method = "lm", se = FALSE, color='red') +
-  stat_cor(aes(label = ..rr.label..), color = "red", geom = "label", size=3) +
-  xlab("covariate relation to OGMn")
-plot
-ggsave("results/cov_phen_scatterplots/OGMn.pdf", plot, height = 6, width=10)
-
-plot <- ggplot(plot_dfs[["EVImax"]], aes(x = value, y = EVImax)) +
-  geom_point(alpha = 0.3) +
-  facet_wrap(~variable, scales = 'free') +
-  geom_smooth(method = "lm", se = FALSE, color='red') +
-  stat_cor(aes(label = ..rr.label..), color = "red", geom = "label", size =3) +
-  xlab("covariate relation to EVImax")
-plot
-ggsave("results/cov_phen_scatterplots/EVImax.pdf", plot, height = 6, width=10)
 
 ##############################################################
-# prepping fastq files for grenepipe 
-# because I wanted to map to the genome instead of the rad-seq scaffolds
-# but this was taking forever and I don't think it will help much so skipping this step
-# also using this to pull out ploidy info
+# pull out ploidy info
 ##############################################################
-
-#phenology <- phenology %>% filter(Site_Code %in% geno_fam$X2)
-#grenepipe_samples <- read_tsv("/Carnegie/DPB/Data/Shared/Labs/Moi/Everyone/aspen/grenepipe/aspen/samples.tsv")
-#gp_df <- grenepipe_samples %>%
-#mutate(Site_Code = str_split(sample, "_", simplify = T)[,1])
 
 ploidy_est <- read_csv("aspenDir/estploidy_pp98.csv", skip=1, 
                        col_names= c("var1", "id", "trip", "dip", "est_ploidy"))
@@ -285,7 +151,19 @@ pheno_coded  <- pheno_coded %>% mutate(geneticSexIDM = ifelse(is.na(geneticSexID
 
 
 #pick the covariates I want to regress out
-covariates <- c("Elevation", "Cos.aspect", "Slope", "Summer.Insolation", "DBH.mean", "Canopy_openness", "Soil.typeSoil", "Soil.typeTalus", "geneticSexIDM", "Rock_UnitQuaternary.deposit", "Rock_UnitQuaternary.talus...rock.glacier", "Rock_UnitSandstone.or.conglomerate.or.siltstone", "Rock_UnitShale.or.limestone")
+
+
+new_covars <- c("tmax", "snowmelt", "sm_runs", "sm_q01")
+new_covars <- lapply(new_covars, function(x) colnames(pheno_coded[grep(
+  x, colnames(pheno_coded))])) %>% unlist()
+
+  
+  
+covariates <- c("Elevation", "Cos.aspect", "Slope", "Summer.Insolation", "DBH.mean", 
+                "Canopy_openness", "Soil.typeSoil", "Soil.typeTalus", "geneticSexIDM",
+                "Rock_UnitQuaternary.deposit", "Rock_UnitQuaternary.talus...rock.glacier",
+                "Rock_UnitSandstone.or.conglomerate.or.siltstone", "Rock_UnitShale.or.limestone",
+                new_covars)
 
 # add year as a covariate (treat as fixed effect since we only have 3 years and that's too small to estimate independent slopes with random effect)
 # make a gathered df for each pheno, then join them together matching on year and id name
@@ -308,9 +186,207 @@ gathered_df <- gathered_df %>% reduce(left_join, by=c('Site_Code', 'year'))
 pheno_coded_stub <- pheno_coded %>% select(colnames(pheno_coded[grep("pheno", colnames(pheno_coded), invert = T)]))
 long_coded_df <- left_join(pheno_coded_stub, gathered_df, on="Site_Code")
 
+# fix the yearly values to be relative to phenol year
+
+#tmax is pretty much the same for everything:
+#> pheno_coded %>% select(contains('tmax')) %>% apply(2, max)
+#tmax_q99.X2012 tmax_q99.X2013 tmax_q99.X2014 tmax_q99.X2015 tmax_q99.X2016 
+#29.97137       29.97811       29.98526       29.87108       29.94518 
+#tmax_q99.X2017 tmax_q99.X2018 tmax_q99.X2019 
+#29.96096       30.05194       29.94654 
+#> pheno_coded %>% select(contains('tmax')) %>% apply(2, min)
+#tmax_q99.X2012 tmax_q99.X2013 tmax_q99.X2014 tmax_q99.X2015 tmax_q99.X2016 
+#29.56789       29.56454       29.42282       29.41036       29.55413 
+#tmax_q99.X2017 tmax_q99.X2018 tmax_q99.X2019 
+#29.47145       29.65711       29.50122 
+
+# if year = 2019, 2019 measurements = current, 2018 y-1, 2017 y-2, etc
+long_coded_df <- long_coded_df %>% mutate(snowmelt_t0 = case_when(year=="y_2019" ~ snowmelt.X2019,
+                                                   year=="y_2018" ~ snowmelt.X2018,
+                                                   year=="y_2017" ~ snowmelt.X2017,
+                                                   year=="y_2016" ~ snowmelt.X2016)) %>%
+  mutate(snowmelt_t1 = case_when(year=="y_2019" ~ snowmelt.X2018,
+                                  year=="y_2018" ~ snowmelt.X2017,
+                                  year=="y_2017" ~ snowmelt.X2016,
+                                  year=="y_2016" ~ snowmelt.X2015)) %>%
+  mutate(snowmelt_t2 = case_when(year=="y_2019" ~ snowmelt.X2017,
+                                 year=="y_2018" ~ snowmelt.X2016,
+                                 year=="y_2017" ~ snowmelt.X2015,
+                                 year=="y_2016" ~ snowmelt.X2014)) %>%
+  mutate(snowmelt_t3 = case_when(year=="y_2019" ~ snowmelt.X2016,
+                                 year=="y_2018" ~ snowmelt.X2015,
+                                 year=="y_2017" ~ snowmelt.X2014,
+                                 year=="y_2016" ~ snowmelt.X2013)) %>%
+  mutate(snowmelt_t4 = case_when(year=="y_2019" ~ snowmelt.X2015,
+                                 year=="y_2018" ~ snowmelt.X2014,
+                                 year=="y_2017" ~ snowmelt.X2013,
+                                 year=="y_2016" ~ snowmelt.X2012))
+
+
+long_coded_df <- long_coded_df %>% mutate(sm_runs_med_dur_t0 = case_when(year=="y_2019" ~ sm_runs_med_dur.X2019,
+                                                        year=="y_2018" ~ sm_runs_med_dur.X2018,
+                                                        year=="y_2017" ~ sm_runs_med_dur.X2017,
+                                                        year=="y_2016" ~ sm_runs_med_dur.X2016)) %>%
+  mutate(sm_runs_med_dur_t1 = case_when(year=="y_2019" ~ sm_runs_med_dur.X2018,
+                                 year=="y_2018" ~ sm_runs_med_dur.X2017,
+                                 year=="y_2017" ~ sm_runs_med_dur.X2016,
+                                 year=="y_2016" ~ sm_runs_med_dur.X2015)) %>%
+  mutate(sm_runs_med_dur_t2 = case_when(year=="y_2019" ~ sm_runs_med_dur.X2017,
+                                 year=="y_2018" ~ sm_runs_med_dur.X2016,
+                                 year=="y_2017" ~ sm_runs_med_dur.X2015,
+                                 year=="y_2016" ~ sm_runs_med_dur.X2014)) %>%
+  mutate(sm_runs_med_dur_t3 = case_when(year=="y_2019" ~ sm_runs_med_dur.X2016,
+                                 year=="y_2018" ~ sm_runs_med_dur.X2015,
+                                 year=="y_2017" ~ sm_runs_med_dur.X2014,
+                                 year=="y_2016" ~ sm_runs_med_dur.X2013)) %>%
+  mutate(sm_runs_med_dur_t4 = case_when(year=="y_2019" ~ sm_runs_med_dur.X2015,
+                                 year=="y_2018" ~ sm_runs_med_dur.X2014,
+                                 year=="y_2017" ~ sm_runs_med_dur.X2013,
+                                 year=="y_2016" ~ sm_runs_med_dur.X2012))
+
+long_coded_df <- long_coded_df %>% mutate(sm_q01_t0 = case_when(year=="y_2019" ~ sm_q01.X2019,
+                                                                         year=="y_2018" ~ sm_q01.X2018,
+                                                                         year=="y_2017" ~ sm_q01.X2017,
+                                                                         year=="y_2016" ~ sm_q01.X2016)) %>%
+  mutate(sm_q01_t1 = case_when(year=="y_2019" ~ sm_q01.X2018,
+                                        year=="y_2018" ~ sm_q01.X2017,
+                                        year=="y_2017" ~ sm_q01.X2016,
+                                        year=="y_2016" ~ sm_q01.X2015)) %>%
+  mutate(sm_q01_t2 = case_when(year=="y_2019" ~ sm_q01.X2017,
+                                        year=="y_2018" ~ sm_q01.X2016,
+                                        year=="y_2017" ~ sm_q01.X2015,
+                                        year=="y_2016" ~ sm_q01.X2014)) %>%
+  mutate(sm_q01_t3 = case_when(year=="y_2019" ~ sm_q01.X2016,
+                                        year=="y_2018" ~ sm_q01.X2015,
+                                        year=="y_2017" ~ sm_q01.X2014,
+                                        year=="y_2016" ~ sm_q01.X2013)) %>%
+  mutate(sm_q01_t4 = case_when(year=="y_2019" ~ sm_q01.X2015,
+                                        year=="y_2018" ~ sm_q01.X2014,
+                                        year=="y_2017" ~ sm_q01.X2013,
+                                        year=="y_2016" ~ sm_q01.X2012))
+
+
+long_coded_df <- long_coded_df %>% mutate(tmax_q99_t0 = case_when(year=="y_2019" ~ tmax_q99.X2019,
+                                                                year=="y_2018" ~ tmax_q99.X2018,
+                                                                year=="y_2017" ~ tmax_q99.X2017,
+                                                                year=="y_2016" ~ tmax_q99.X2016)) %>%
+  mutate(tmax_q99_t1 = case_when(year=="y_2019" ~ tmax_q99.X2018,
+                               year=="y_2018" ~ tmax_q99.X2017,
+                               year=="y_2017" ~ tmax_q99.X2016,
+                               year=="y_2016" ~ tmax_q99.X2015)) %>%
+  mutate(tmax_q99_t2 = case_when(year=="y_2019" ~ tmax_q99.X2017,
+                               year=="y_2018" ~ tmax_q99.X2016,
+                               year=="y_2017" ~ tmax_q99.X2015,
+                               year=="y_2016" ~ tmax_q99.X2014)) %>%
+  mutate(tmax_q99_t3 = case_when(year=="y_2019" ~ tmax_q99.X2016,
+                               year=="y_2018" ~ tmax_q99.X2015,
+                               year=="y_2017" ~ tmax_q99.X2014,
+                               year=="y_2016" ~ tmax_q99.X2013)) %>%
+  mutate(tmax_q99_t4 = case_when(year=="y_2019" ~ tmax_q99.X2015,
+                               year=="y_2018" ~ tmax_q99.X2014,
+                               year=="y_2017" ~ tmax_q99.X2013,
+                               year=="y_2016" ~ tmax_q99.X2012))
+
+
+long_coded_df <- long_coded_df %>% select(-all_of(new_covars))
+
 # dummy encode the years and make full rank
 long_coded_df <- long_coded_df %>% mutate(value=1) %>% spread(year, value, fill=0)
 long_coded_df <- long_coded_df %>% select(-'y_2016')
+
+
+
+#################################################
+
+
+# look at relationship between predictors and phenologies
+
+plot_cov2phenol_relationship <- function(long_df){
+  df_list = list()
+  for (p in c("GSL", "OGI", "OGMn", "EVImax")){
+    print(p)
+    df <- long_df %>% select(c(1:18, p, 23:42))
+    df.gathered <- df %>%
+      as_tibble() %>%
+      gather(key = "variable", value = "value",
+             -Site_Code, -p)
+    df_list[[p]] <- df.gathered
+  }
+  return(df_list)
+}
+
+plot_dfs <- plot_cov2phenol_relationship(long_coded_df)
+
+
+plot <- ggplot(plot_dfs[["GSL"]], aes(x = value, y = GSL)) +
+  geom_point(alpha = 0.3) +
+  facet_wrap(~variable, scales = 'free') +
+  geom_smooth(method = "lm", se = FALSE, color='red') +
+  stat_cor(aes(label = ..rr.label..), color = "red", geom = "label", size=3) +
+  xlab("covariate relation to GSL")
+
+plot
+ggsave("results/cov_phen_scatterplots/GSL_updated.pdf", plot, height = 6, width=10)
+
+plot <- ggplot(plot_dfs[["OGI"]], aes(x = value, y = OGI)) +
+  geom_point(alpha = 0.3) +
+  facet_wrap(~variable, scales = 'free') +
+  geom_smooth(method = "lm", se = FALSE, color='red') +
+  stat_cor(aes(label = ..rr.label..), color = "red", geom = "label", size=3) +
+  xlab("covariate relation to OGI")
+
+plot
+ggsave("results/cov_phen_scatterplots/OGI_updated.pdf", plot, height = 6, width=10)
+
+plot <- ggplot(plot_dfs[["OGMn"]], aes(x = value, y = OGMn)) +
+  geom_point(alpha = 0.3) +
+  facet_wrap(~variable, scales = 'free') +
+  geom_smooth(method = "lm", se = FALSE, color='red') +
+  stat_cor(aes(label = ..rr.label..), color = "red", geom = "label", size=3) +
+  xlab("covariate relation to OGMn")
+plot
+ggsave("results/cov_phen_scatterplots/OGMn_updated.pdf", plot, height = 6, width=10)
+
+plot <- ggplot(plot_dfs[["EVImax"]], aes(x = value, y = EVImax)) +
+  geom_point(alpha = 0.3) +
+  facet_wrap(~variable, scales = 'free') +
+  geom_smooth(method = "lm", se = FALSE, color='red') +
+  stat_cor(aes(label = ..rr.label..), color = "red", geom = "label", size =3) +
+  xlab("covariate relation to EVImax")
+plot
+ggsave("results/cov_phen_scatterplots/EVImax_updated.pdf", plot, height = 6, width=10)
+
+
+#################################################
+
+#plot xy coordinates with temp
+p <- new_covars[grep("tmax", new_covars)]
+print(p)
+df <- pheno_coded %>% select(c(1:3, p))
+tmp <- df %>% gather(key=year, val=max_temp, p, -Site_Code, -x, -y) 
+
+plot <- ggplot(tmp, aes(x=x, y=y, color=max_temp)) +
+  geom_point(alpha=0.8) +
+  facet_wrap(~year) +
+  xlab("temperature by coordinate")
+plot
+ggsave("results/temp_by_coordinates.pdf", plot, height = 6, width=10)
+
+#plot xy coordinates with snowmelt
+p <- new_covars[grep("snowmelt", new_covars)]
+print(p)
+df <- pheno_coded %>% select(c(1:3, p))
+tmp <- df %>% gather(key=year, val=melt_date, p, -Site_Code, -x, -y) 
+
+plot <- ggplot(tmp, aes(x=x, y=y, color=melt_date)) +
+  geom_point(alpha=0.8) +
+  facet_wrap(~year) +
+  xlab("snowmelt date by coordinate")
+plot
+ggsave("results/melt_date_by_coordinates.pdf", plot, height = 6, width=10)
+
+
+#################################################
 
 #add ploidy to later split data into diploid and triploid
 long_coded_df <- ploidy %>% select(Site_Code, ploidy_group) %>%
@@ -328,32 +404,25 @@ df_subsets[['coverany_diploid']] <- long_coded_df %>% filter(ploidy_group=='Dipl
 df_subsets[['coverany_nodips']] <- long_coded_df %>% filter(ploidy_group!='Diploid') #include ambiguous and unknown since most are triploid
 df_subsets[['coverany_triploid']] <- long_coded_df %>% filter(ploidy_group=='Triploid') 
 
-#remove samples with aspen cover less than 20%
-df_subsets[['cover20_all']] <- long_coded_df %>% filter(fraction_aspen >=.2)
-df_subsets[['cover20_diploid']] <- long_coded_df %>% filter(ploidy_group=='Diploid' & fraction_aspen >=.2)
-df_subsets[['cover20_nodips']] <- long_coded_df %>% filter(ploidy_group!='Diploid' & fraction_aspen >=.2)
-df_subsets[['cover20_triploid']] <- long_coded_df %>% filter(ploidy_group=='Triploid' & fraction_aspen >=.2)
-
 #remove samples with aspen cover less than 25%
-df_subsets[['cover25_all']] <- long_coded_df %>% filter(fraction_aspen >=.25)
-df_subsets[['cover25_diploid']] <- long_coded_df %>% filter(ploidy_group=='Diploid' & fraction_aspen >=.25)
-df_subsets[['cover25_nodips']] <- long_coded_df %>% filter(ploidy_group!='Diploid' & fraction_aspen >=.25)
-df_subsets[['cover25_triploid']] <- long_coded_df %>% filter(ploidy_group=='Triploid' & fraction_aspen >=.25)
+df_subsets[['cover25_all']] <- long_coded_df %>% filter(aspen_cover >=.25)
+df_subsets[['cover25_diploid']] <- long_coded_df %>% filter(ploidy_group=='Diploid' & aspen_cover >=.25)
+df_subsets[['cover25_nodips']] <- long_coded_df %>% filter(ploidy_group!='Diploid' & aspen_cover >=.25)
+df_subsets[['cover25_triploid']] <- long_coded_df %>% filter(ploidy_group=='Triploid' & aspen_cover >=.25)
 
 #remove samples with aspen cover less than 50%
-df_subsets[['cover50_all']] <- long_coded_df %>% filter(fraction_aspen >=.50)
-df_subsets[['cover50_diploid']] <- long_coded_df %>% filter(ploidy_group=='Diploid' & fraction_aspen >=.50)
-df_subsets[['cover50_nodips']] <- long_coded_df %>% filter(ploidy_group!='Diploid' & fraction_aspen >=.50)
-df_subsets[['cover50_triploid']] <- long_coded_df %>% filter(ploidy_group=='Triploid' & fraction_aspen >=.50)
+df_subsets[['cover50_all']] <- long_coded_df %>% filter(aspen_cover >=.50)
+df_subsets[['cover50_diploid']] <- long_coded_df %>% filter(ploidy_group=='Diploid' & aspen_cover >=.50)
+df_subsets[['cover50_nodips']] <- long_coded_df %>% filter(ploidy_group!='Diploid' & aspen_cover >=.50)
+df_subsets[['cover50_triploid']] <- long_coded_df %>% filter(ploidy_group=='Triploid' & aspen_cover >=.50)
 
 
 
 ## assign the regressors
 
-regressors <- covariates %>% paste(collapse=' + ')
-regressors <- paste(c(regressors,'y_2017 + y_2018 + y_2019'), collapse = " + ")
+regressors <- colnames(long_coded_df[c(5:18, 24:46)]) %>% paste(collapse=' + ')
 
-
+####################################################################################
 ## do the regression
 ## running on all samples regardless of available genotype to benefit from larger dataset
 lm_func <- function(df){
@@ -369,20 +438,14 @@ res <- lapply(df_subsets, function(x) lm_func(x))
 
 
 
-#check for linear relationship between independent and dependent variables
-#(so phenology and covariates)
-#and homoscedasticity
-#as well as leverage for any given outlier sample
-
-
 # write out the lm summary and plots for each condition and subset
-for (i in seq(1,16)){
+for (i in seq(1,12)){
   subset <- names(res)[i]
   print(subset)
   for (j in seq(1,4)){
     pheno <- names(res[[i]][j])
     print(pheno)
-    pdf(sprintf("results/covariate_residuals/regression_plots/%s_%s.pdf", subset, pheno))
+    pdf(sprintf("results/covariate_residuals/regression_plots_updated/%s_%s.pdf", subset, pheno))
     par(mfrow=c(2,2)) # Change the panel layout to 2 x 2
     plot(res[[i]][[j]])
     par(mfrow=c(1,1)) # Change back to 1 x 1
@@ -393,7 +456,7 @@ for (i in seq(1,16)){
 
 
 # write out the residuals for each condition and subset
-for (i in seq(1,16)){
+for (i in seq(1,12)){
   subset <- names(res)[i]
   print(subset)
   for (j in seq(1,4)){
@@ -410,49 +473,26 @@ for (i in seq(1,16)){
                        residuals =residuals,
                        phenval = phenval2use)
     write_tsv(resid_df, 
-              sprintf("results/covariate_residuals/%s_%s.phen", subset, pheno),
+              sprintf("results/covariate_residuals/updated/%s_%s.phen", subset, pheno),
               col_names = F)
   }
 }
 
 
-
-# look at the GRM
-ReadGRMBin=function(prefix, AllN=F, size=4){
-  sum_i=function(i){
-    return(sum(1:i))
-  }
-  BinFileName=paste(prefix,".grm.bin",sep="")
-  NFileName=paste(prefix,".grm.N.bin",sep="")
-  IDFileName=paste(prefix,".grm.id",sep="")
-  id = read.table(IDFileName)
-  n=dim(id)[1]
-  BinFile=file(BinFileName, "rb");
-  grm=readBin(BinFile, n=n*(n+1)/2, what=numeric(0), size=size)
-  NFile=file(NFileName, "rb");
-  if(AllN==T){
-    N=readBin(NFile, n=n*(n+1)/2, what=numeric(0), size=size)
-  }
-  else N=readBin(NFile, n=1, what=numeric(0), size=size)
-  i=sapply(1:n, sum_i)
-  return(list(diag=grm[i], off=grm[-i], id=id, N=N))
-}
-
-grm <- ReadGRMBin("data/gcta/aspen_phenology")
-# I actually went with .005 and removed the other files
-#grm_01 <- ReadGRMBin("data/gcta/aspen_phenology_01")
-#grm_005 <- ReadGRMBin("data/gcta/aspen_phenology_005")
+####################################################################################
+# RUN GCTA GREML, then do this
+####################################################################################
 
 
-############
 # read in results from gcta greml
-gcta_files <- list.files(path = "results/gcta_greml/", pattern = "*.hsq")
+gcta_files <- list.files(path = "results/gcta_greml/updated/", pattern = "*.hsq")
 
 gcta_df <- do.call(rbind, lapply(gcta_files, function(x) cbind(
-  read_tsv(paste("results/gcta_greml/", x, sep="")), stub=x)))
+  read_tsv(paste("results/gcta_greml/updated/", x, sep="")), stub=x)))
 
 gcta_df <- gcta_df %>% separate(stub, into=c("cover", "ploidy", "rest"), sep="_")
 gcta_df <- gcta_df %>% separate(rest, into=c("phenology", "val_used"), sep="[.]")
+gcta_df <- gcta_df %>% filter(cover != "coverany")
 
 val_used_resid <- gcta_df %>% 
   filter(val_used == 'resids' & Source == 'V(G)/Vp' & ploidy != 'nodips')
@@ -465,6 +505,7 @@ plot_resid <- ggplot(val_used_resid, aes(x=ploidy, y=Variance, color=cover)) +
                     position=position_dodge(width=0.5)) +
   facet_grid(~phenology, switch="both") +
   theme(axis.text.x = element_text(angle = 75, hjust=1)) + 
+  theme_minimal_hgrid() +
   labs(y="Vg/Vp", x='covariate residuals') +
   coord_cartesian(ylim = c(0, 1))
 
@@ -474,6 +515,7 @@ plot_full <- ggplot(val_used_full, aes(x=ploidy, y=Variance, color=cover)) +
                 position=position_dodge(width=0.5)) +
   facet_grid(~phenology, switch="both") +
   theme(axis.text.x = element_text(angle = 75, hjust=1)) + 
+  theme_minimal_hgrid() +
   labs(y="Vg/Vp", x='full phenology') +
   coord_cartesian(ylim = c(0, 1))
 
@@ -482,8 +524,7 @@ plot <- ggarrange(plot_resid, plot_full, ncol=2, common.legend=T, legend="bottom
 annotate_figure(plot, top=textGrob("Heritability Estimates", 
                                    gp=gpar(fontsize=20, font=8)))
 
-
-ggsave("results/gcta_greml/plots/heritability.pdf", plot,
+ggsave("results/gcta_greml/plots/updated_heritability.pdf", plot,
        width=10, height=7, units="in")
 
 
@@ -494,7 +535,7 @@ ggsave("results/gcta_greml/plots/heritability.pdf", plot,
 paper_df <- val_used_resid %>%
   filter(cover %in% c("cover25", "cover50")) %>%
   select(-val_used)
-write_tsv(paper_df, "results/gcta_greml/paper_data")
+write_tsv(paper_df, "results/gcta_greml/updated/paper_data_updated_tmax.tsv")
 
 
 # set up environment
@@ -502,7 +543,7 @@ library(tidyverse)
 library(cowplot)
 theme_set(theme_cowplot())
 
-paper_df <- read_tsv("results/gcta_greml/paper_data")
+paper_df <- read_tsv("results/gcta_greml/updated/paper_data_updated_tmax.tsv")
 
 plot_resid <- ggplot(paper_df, aes(x=ploidy, y=Variance, color=cover)) +
   geom_point(alpha=0.5, size=3, position=position_dodge(width=0.5)) +
@@ -515,7 +556,7 @@ plot_resid <- ggplot(paper_df, aes(x=ploidy, y=Variance, color=cover)) +
 
 plot_resid
 
-ggsave("results/gcta_greml/plots/heritability_25and50.pdf", plot_resid,
+ggsave("results/gcta_greml/plots/heritability_25and50_updated_tmax.pdf", plot_resid,
        width=10, height=7, units="in")
 
 
