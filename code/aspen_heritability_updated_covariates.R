@@ -200,7 +200,7 @@ long_coded_df <- left_join(pheno_coded_stub, gathered_df, on="Site_Code")
 #tmax_q99.X2017 tmax_q99.X2018 tmax_q99.X2019 
 #29.47145       29.65711       29.50122 
 
-# if year = 2019, 2019 measurements = current, 2018 y-1, 2017 y-2, etc
+# if year = 2019, 2019 measurements = current, 2018 y-1, 2017 y-2, y-3
 long_coded_df <- long_coded_df %>% mutate(snowmelt_t0 = case_when(year=="y_2019" ~ snowmelt.X2019,
                                                    year=="y_2018" ~ snowmelt.X2018,
                                                    year=="y_2017" ~ snowmelt.X2017,
@@ -216,12 +216,7 @@ long_coded_df <- long_coded_df %>% mutate(snowmelt_t0 = case_when(year=="y_2019"
   mutate(snowmelt_t3 = case_when(year=="y_2019" ~ snowmelt.X2016,
                                  year=="y_2018" ~ snowmelt.X2015,
                                  year=="y_2017" ~ snowmelt.X2014,
-                                 year=="y_2016" ~ snowmelt.X2013)) %>%
-  mutate(snowmelt_t4 = case_when(year=="y_2019" ~ snowmelt.X2015,
-                                 year=="y_2018" ~ snowmelt.X2014,
-                                 year=="y_2017" ~ snowmelt.X2013,
-                                 year=="y_2016" ~ snowmelt.X2012))
-
+                                 year=="y_2016" ~ snowmelt.X2013))
 
 long_coded_df <- long_coded_df %>% mutate(sm_runs_med_dur_t0 = case_when(year=="y_2019" ~ sm_runs_med_dur.X2019,
                                                         year=="y_2018" ~ sm_runs_med_dur.X2018,
@@ -238,11 +233,7 @@ long_coded_df <- long_coded_df %>% mutate(sm_runs_med_dur_t0 = case_when(year=="
   mutate(sm_runs_med_dur_t3 = case_when(year=="y_2019" ~ sm_runs_med_dur.X2016,
                                  year=="y_2018" ~ sm_runs_med_dur.X2015,
                                  year=="y_2017" ~ sm_runs_med_dur.X2014,
-                                 year=="y_2016" ~ sm_runs_med_dur.X2013)) %>%
-  mutate(sm_runs_med_dur_t4 = case_when(year=="y_2019" ~ sm_runs_med_dur.X2015,
-                                 year=="y_2018" ~ sm_runs_med_dur.X2014,
-                                 year=="y_2017" ~ sm_runs_med_dur.X2013,
-                                 year=="y_2016" ~ sm_runs_med_dur.X2012))
+                                 year=="y_2016" ~ sm_runs_med_dur.X2013))
 
 long_coded_df <- long_coded_df %>% mutate(sm_q01_t0 = case_when(year=="y_2019" ~ sm_q01.X2019,
                                                                          year=="y_2018" ~ sm_q01.X2018,
@@ -259,11 +250,7 @@ long_coded_df <- long_coded_df %>% mutate(sm_q01_t0 = case_when(year=="y_2019" ~
   mutate(sm_q01_t3 = case_when(year=="y_2019" ~ sm_q01.X2016,
                                         year=="y_2018" ~ sm_q01.X2015,
                                         year=="y_2017" ~ sm_q01.X2014,
-                                        year=="y_2016" ~ sm_q01.X2013)) %>%
-  mutate(sm_q01_t4 = case_when(year=="y_2019" ~ sm_q01.X2015,
-                                        year=="y_2018" ~ sm_q01.X2014,
-                                        year=="y_2017" ~ sm_q01.X2013,
-                                        year=="y_2016" ~ sm_q01.X2012))
+                                        year=="y_2016" ~ sm_q01.X2013)) 
 
 
 long_coded_df <- long_coded_df %>% mutate(tmax_q99_t0 = case_when(year=="y_2019" ~ tmax_q99.X2019,
@@ -281,11 +268,7 @@ long_coded_df <- long_coded_df %>% mutate(tmax_q99_t0 = case_when(year=="y_2019"
   mutate(tmax_q99_t3 = case_when(year=="y_2019" ~ tmax_q99.X2016,
                                year=="y_2018" ~ tmax_q99.X2015,
                                year=="y_2017" ~ tmax_q99.X2014,
-                               year=="y_2016" ~ tmax_q99.X2013)) %>%
-  mutate(tmax_q99_t4 = case_when(year=="y_2019" ~ tmax_q99.X2015,
-                               year=="y_2018" ~ tmax_q99.X2014,
-                               year=="y_2017" ~ tmax_q99.X2013,
-                               year=="y_2016" ~ tmax_q99.X2012))
+                               year=="y_2016" ~ tmax_q99.X2013))
 
 
 long_coded_df <- long_coded_df %>% select(-all_of(new_covars))
@@ -420,7 +403,7 @@ df_subsets[['cover50_triploid']] <- long_coded_df %>% filter(ploidy_group=='Trip
 
 ## assign the regressors
 
-regressors <- colnames(long_coded_df[c(5:18, 24:46)]) %>% paste(collapse=' + ')
+regressors <- colnames(long_coded_df[c(5:12, 14:18, 24:42)]) %>% paste(collapse=' + ')
 
 ####################################################################################
 ## do the regression
@@ -527,6 +510,14 @@ annotate_figure(plot, top=textGrob("Heritability Estimates",
 ggsave("results/gcta_greml/plots/updated_heritability.pdf", plot,
        width=10, height=7, units="in")
 
+#####
+# get counts for paper
+
+tmp2 <- long_coded_df %>% filter(
+  aspen_cover >= 0.25) %>%
+  distinct(Site_Code, .keep_all=T)
+
+
 
 #################################################################
 # output dataframe for Ben to make publication plot
@@ -535,7 +526,7 @@ ggsave("results/gcta_greml/plots/updated_heritability.pdf", plot,
 paper_df <- val_used_resid %>%
   filter(cover %in% c("cover25", "cover50")) %>%
   select(-val_used)
-write_tsv(paper_df, "results/gcta_greml/updated/paper_data_updated_tmax.tsv")
+write_tsv(paper_df, "results/gcta_greml/updated/paper_data_updated.tsv")
 
 
 # set up environment
@@ -543,7 +534,7 @@ library(tidyverse)
 library(cowplot)
 theme_set(theme_cowplot())
 
-paper_df <- read_tsv("results/gcta_greml/updated/paper_data_updated_tmax.tsv")
+paper_df <- read_tsv("results/gcta_greml/updated/paper_data_updated.tsv")
 
 plot_resid <- ggplot(paper_df, aes(x=ploidy, y=Variance, color=cover)) +
   geom_point(alpha=0.5, size=3, position=position_dodge(width=0.5)) +
@@ -556,20 +547,12 @@ plot_resid <- ggplot(paper_df, aes(x=ploidy, y=Variance, color=cover)) +
 
 plot_resid
 
-ggsave("results/gcta_greml/plots/heritability_25and50_updated_tmax.pdf", plot_resid,
+ggsave("results/gcta_greml/plots/heritability_25and50_updated.pdf", plot_resid,
        width=10, height=7, units="in")
 
 
 
 ########################
-library(MCMCglmm)
-
-phenology_cols <- long_coded_df %>% select(OGI, OGMn, EVImax, GSL)
-
-#MCMCglmm(fixed=phenology_cols, bt_df <- )
-
-
-
 
 '''
 notes
