@@ -1,0 +1,314 @@
+---
+title: "Heritability of P. tremuloides phenology variables"
+
+author: "Shannon Hateley, PhD"
+date: "Spring 2022"
+output: html_notebook
+---
+
+This analysis is part of the study by Dr. Ben Blonder et al. on how "legacy effects of drought, heat, and snowmelt interact with cytotype and sex to determine phenology in quaking aspen (Populus tremuloides)."
+
+## Main Analysis
+**In short**:  
+We obtained measurements of the phenological variables ***OGI*** (greenup date), ***OGMn*** (greendown date), ***GSL*** (growing season length), and ***EVImax*** (peak greenness) over a four year period. After initial quality checks and filtering, heritability estimates of these variables were made in a two-step process:
+
+1. Control for the confounding effects of environmental covariates using a linear regression
+2. Estimate heritability (the proportion of phenotypic variance explained by genetic variance) of the residual effects remaining after regression from step 1 using a genomic restricted maximum likelihood estimation (gREML)
+
+```{r setup, include=FALSE}
+#setup environment
+library(tidyverse)
+library(caret) #for easy one-hot encoding
+library(reshape2) #for melt
+library(stringr)
+library(ggpubr)
+library(grid)
+library(cowplot)
+theme_set(theme_cowplot())
+```
+
+
+```{r read_data, include=FALSE}
+#read in data
+phenology <- read_csv("data/data_for_heritability.csv")
+
+#one-hot encode categorical data
+#set fullRank=F for the covariate analaysis;
+#later fullRank=T for regression
+pheno_coded <- cbind(phenology[1], data.frame(predict(
+                    dummyVars("~.", data=phenology[-1], fullRank=F), newdata = phenology[-1]))
+                    )
+
+kinship <- read_tsv("data/GEMMA_files/aspen_phenology.cXX.txt", col_names = F)
+ploidy_est <- read_csv("aspenDir/estploidy_pp98.csv", skip=1, 
+                       col_names= c("var1", "id", "trip", "dip", "est_ploidy"))
+ploidy_est <- ploidy_est %>%  mutate(Site_Code = str_split(id, "_", simplify = T)[,1])
+ploidy_est <- ploidy_est %>% mutate(est_mismatch = if(n_distinct(est_ploidy)==1) 'F' else 'T')
+
+```
+
+### Methods
+#### Covariate regression 
+
+* The following covariates were used in regression model: 
+  + Elevation
+  + Cosine Aspect
+  + Slope
+  + Summer Insolation
+  + DBH mean
+  + Canopy Openness
+  + Soil Type
+  + Genetic Sex
+  + Rock Unit
+  + Measurement Year
+
+- 503 samples were included in the regression
+- Categorical variables were one-hot encoded and subset to full-rank. 
+- Missing genetic sex values were assigned a mean value of 0.5 for 41 samples.
+- Measurement year was one-hot encoded and treated as a fixed effect since there are only 4 years and that's too small a number to estimate independent slopes using a random effect.  
+- Samples were split by estimated ploidy (all, diploid, or triploid) and fraction aspen coverage in pixel image (all samples or >20%).
+- Linear regression on the covariates of each of these sets of samples was run and the residuals output for heritability estimation.
+
+
+
+#### Heritability estimation 
+
+**Software**: Genome-wide Complex Trait Analysis (GCTA) version 1.94.0 beta Linux
+
+Samples were subset to the 488 with genotype information. From these, we generated a genetic relatedness matrix using the 13,680 high-quality variants from the RAD-Seq data aligned to the assembled RAD-Seq contigs and filtered to variants with an allele frequency >= 0.5%. This resulted in 6,173 valid markers for the relatedness calculation. GCTA's GREML was run on the sample subsets, in one iteration using the residuals as the phenotype and in another using the full phenology variable measurements.
+
+### Results
+```{r, echo=FALSE}
+
+# read in results from gcta greml
+gcta_files <- list.files(path = "results/gcta_greml/", pattern = "*.hsq")
+
+gcta_df <- do.call(rbind, lapply(gcta_files, function(x) cbind(
+  read_tsv(paste("results/gcta_greml/", x, sep=""), na=""), stub=x)))
+
+gcta_df <- gcta_df %>% separate(stub, into=c("cover", "ploidy", "rest"), sep="_")
+gcta_df <- gcta_df %>% separate(rest, into=c("phenology", "val_used"), sep="[.]")
+
+val_used_resid <- gcta_df %>% 
+  filter(val_used == 'resids' & Source == 'V(G)/Vp' & ploidy != 'nodips')
+val_used_full <- gcta_df %>% 
+  filter(val_used == 'pheno' & Source == 'V(G)/Vp' & ploidy != 'nodips')
+
+plot_resid <- ggplot(val_used_resid, aes(x=ploidy, y=Variance, color=cover)) +
+  geom_point(alpha=0.5, size=3) +
+  geom_errorbar(aes(ymin=(Variance-SE), ymax=(Variance+SE))) +
+  facet_grid(~phenology, switch="both") +
+  theme(axis.text.x = element_text(angle = 75, hjust=1)) + 
+  labs(y="Vg/Vp", x='covariate residuals') +
+  coord_cartesian(ylim = c(0, 1))
+
+plot_full <- ggplot(val_used_full, aes(x=ploidy, y=Variance, color=cover)) +
+  geom_point(alpha=0.5, size=3) +
+  geom_errorbar(aes(ymin=(Variance-SE), ymax=(Variance+SE))) +
+  facet_grid(~phenology, switch="both") +
+  theme(axis.text.x = element_text(angle = 75, hjust=1)) + 
+  labs(y="Vg/Vp", x='full phenology') +
+  coord_cartesian(ylim = c(0, 1))
+
+plot <- ggarrange(plot_resid, plot_full, ncol=2, common.legend=T, legend="bottom")
+
+```
+
+```{r, echo=FALSE, results=FALSE, fig.width=10, fig.height=6}
+annotate_figure(plot, top=textGrob("Heritability Estimates", 
+                                   gp=gpar(fontsize=20, font=8)))
+```
+
+
+
+
+```{r, include = FALSE} 
+#look at genotypic and phenotypic variance
+#haven't actually finished this section to plot correctly
+
+val_used_resid <- gcta_df %>% 
+  filter(val_used == 'resids' & Source %in% (c("V(G)", "V(E)", "Vp")) & ploidy != 'nodips')
+val_used_full <- gcta_df %>% 
+  filter(val_used == 'phenos' & SSource %in% (c("V(G)", "V(E)", "Vp")) & ploidy != 'nodips')
+
+plot_resid <- ggplot(val_used_resid, aes(x=ploidy, y=Variance, shape=cover, color=Source)) +
+  geom_point(alpha=0.5, size=3) +
+  geom_errorbar(aes(ymin=(Variance-SE), ymax=(Variance+SE))) +
+  facet_grid(~phenology, switch="both") +
+  theme(axis.text.x = element_text(angle = 75, hjust=1)) + 
+  labs(y="Variance", x='covariate residuals')
+
+plot_full <- ggplot(val_used_full, aes(x=ploidy, y=Variance, shape=cover, color=Source)) +
+  geom_point(alpha=0.5, size=3) +
+  geom_errorbar(aes(ymin=(Variance-SE), ymax=(Variance+SE))) +
+  facet_grid(~phenology, switch="both") +
+  theme(axis.text.x = element_text(angle = 75, hjust=1)) + 
+  labs(y="Variance", x='full phenology')
+
+require(gridExtra)
+plot_variances <- grid.arrange(plot_resid, plot_full, ncol=2,
+                                  top = "Contributing Variances")
+
+ggsave("results/gcta_greml/plots/variances.png", plot_variances)
+
+
+```
+
+***
+**Results discussion:**
+
+* Heritability estimates did not vary significantly when using just the residuals versus using the full phenology values in the estimates. This is often the case when there is enough variability in environmental factors across samples, which is seen with large sample sets. It is somewhat surprising that we see this in such a small sample set.  
+* We see less error in the variance estimate in the triploid set because there are more triploid samples (406) than diploid samples (73). There were also 9 ambiguous ploidy samples which were run only in the "all" subset. 
+* ***EVImax*** (peak greeness) looks the most heritable, and we see the other three variables more similar to each other - is GSL a composite of OGI and OGMn?
+
+***fraction aspen value***  
+I have not thresholded the samples to >50% aspen fraction in the Sentinel-2 pixel, due to number of sample constraints (see histogram below). Note that when regressing on the covariates I have  used the subset of each aspen fraction that is used in the heritability estimate.
+
+```{r, echo=FALSE, fig.width=6, fig.height=3}
+ggplot(phenology, aes(x=fraction_aspen)) +
+  geom_histogram(bins=50) +
+  labs(x="fraction aspen of Sentinel-2 pixel", title = "50% aspen would remove most samples")
+```
+
+
+
+***
+
+## Data preparation, quality checks, and filtering
+##### Correlation between variables
+Phenology metrics measurements across years showed strong correlation. Environmental covariates showed varying degrees of correlation to each other and with phenologies, inline with what would be expected based upon their physical and biological relationships to each other.
+
+```{r, echo=FALSE, fig.width=8, fig.height=8}
+####### check correlations between phenology variables #######
+# use fullRank=F on covariates
+
+var_cor <- cor(pheno_coded[-1], use="pairwise.complete.obs")
+
+# Get upper triangle of the correlation matrix
+get_upper_tri <- function(cormat){
+  cormat[lower.tri(cormat)]<- NA
+  return(cormat)
+}
+  
+reorder_cormat <- function(cormat){
+  # Use correlation between variables as distance
+  dd <- as.dist((1-cormat)/2)
+  hc <- hclust(dd)
+  cormat <-cormat[hc$order, hc$order]
+}
+
+# Reorder the correlation matrix
+var_cor <- reorder_cormat(var_cor)
+upper_tri <- get_upper_tri(var_cor)
+# Melt the correlation matrix
+melted_var_cor <- melt(upper_tri, na.rm = TRUE)
+# Create a ggheatmap
+ggheatmap <- ggplot(melted_var_cor, aes(Var2, Var1, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name="Pearson\nCorrelation") +
+  theme_minimal() + # minimal theme
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, 
+                                   size = 8, hjust = 1),
+        axis.text.y = element_text(size = 8)) +
+  coord_fixed() +
+  labs(x="", y="")
+
+# Print the heatmap
+ggheatmap
+```
+##### Normality of variables 
+To check if our covariates and continuous phenology variableswere normally distributed (didn't really need to do, but why not?), we utilized Shapiro-Wilk test and visual inspection of data.  
+
+Most of the covariates look fairly normally distributed. However, Cosine Aspect is right-skewed (Shipiro=0.78).
+
+**Covariates**
+```{r, echo=FALSE}
+#check for normality of covariates
+phenology.continuous <- phenology %>%
+  select(Elevation, Cos.aspect, Slope, Summer.Insolation, 
+         DBH.mean, fraction_aspen)
+
+shapiro <- sapply(phenology.continuous, shapiro.test) %>% as_tibble() # shapiro-wilk nomality test
+res1 <- shapiro[1,] %>%
+  pivot_longer(colnames(shapiro), names_to = "variable", values_to = "Shapiro_Wilk_stat")
+res2 <- shapiro[2,] %>%
+  pivot_longer(colnames(shapiro), names_to = "variable", values_to = "pval")
+res_shapiro <- cbind(res1,res2[,2])
+res_shapiro$Shapiro_Wilk_stat <- res_shapiro$Shapiro_Wilk_stat %>% gsub("^c.*= ","",.) %>% gsub(")","",.)
+res_shapiro$pval <- unlist(res_shapiro$pval)
+res_shapiro
+```
+```{r, echo=FALSE}
+pheno.gathered.continuous <- phenology.continuous %>%
+  gather(key = "variable", value = "value")
+
+ggplot(pheno.gathered.continuous, aes(x = value)) +
+  geom_histogram(bins = 25) +
+  facet_wrap(~variable, scales = 'free') +
+  theme(strip.text.x = element_text(size=6), axis.text=element_text(size=6))
+
+```
+**Phenology variables**
+
+The phenology measurements appear fairly normal-ish:
+```{r, echo=FALSE}
+#check for normality of phenology
+phenology.continuous <- phenology %>%
+  select(colnames(phenology)[grep("pheno", colnames(phenology))])
+
+shapiro <- sapply(phenology.continuous, shapiro.test) %>% as_tibble() # shapiro-wilk nomality test
+res1 <- shapiro[1,] %>%
+  pivot_longer(colnames(shapiro), names_to = "variable", values_to = "Shapiro_Wilk_stat")
+res2 <- shapiro[2,] %>%
+  pivot_longer(colnames(shapiro), names_to = "variable", values_to = "pval")
+res_shapiro <- cbind(res1,res2[,2])
+res_shapiro$Shapiro_Wilk_stat <- res_shapiro$Shapiro_Wilk_stat %>% gsub("^c.*= ","",.) %>% gsub(")","",.)
+res_shapiro$pval <- unlist(res_shapiro$pval)
+res_shapiro
+```
+```{r, echo=FALSE}
+pheno.gathered.continuous <- phenology.continuous %>%
+  gather(key = "variable", value = "value")
+
+ggplot(pheno.gathered.continuous, aes(x = value)) +
+  geom_histogram(bins = 25) +
+  facet_wrap(~variable, scales = 'free') +
+  theme(strip.text.x = element_text(size=6), axis.text=element_text(size=6))
+
+```
+#### Outliers
+We performed a preliminary basic check for sample outliers through PCA. First, by visual inspection of first 2 PCs and then through  asking if any outliers are 6sd away from mean (this distance however is somewhat arbitrary however often used in genetics). We could do a more rebust outlier check if we wanted but probably not necessary.
+```{r, echo=FALSE, fig.width=4, fig.height=4}
+phenology.continuous <- phenology %>%
+  select(Elevation, Cos.aspect, Slope, Summer.Insolation, 
+         DBH.mean, fraction_aspen, colnames(phenology)[grep("pheno", colnames(phenology))])
+phenology.continuous[sapply(phenology.continuous, is.null)] <- NA
+phenology.continuous[sapply(phenology.continuous, is.null)] <- NA
+pca <- prcomp(na.omit(phenology.continuous), scale. = TRUE, rank. =10)
+U <- pca$x
+qplot(U[, 1], U[, 2], xlab = 'PC 1', ylab = "PC 2", main = "phenology and covariate PCs") + coord_equal()
+```
+```{r}
+apply(U, 2, function(x) which( abs(x - mean(x)) > (6 * sd(x)) )) #> 6sd from mean
+```
+
+#### Genetic relatedness of samples
+To broadly ascertain the extent of population structure in our samples, we generated a kinship matrix of our 488 genotyped samples. We can see a division of population along PC2, which in previous analysis we performed found to be an outlier population of triploids (see plot Moi made back in fall 2021). If we wanted to dive deeper into issues with heritability estimates, it would be useful to look at how phenology values vary in relation to geographic distance and the split we are seeing in this kinship PCA.
+```{r, echo=FALSE}
+
+#look at relatedness matrix pca
+
+kin_pca <- prcomp(kinship, scale. = TRUE, rank. =10)
+U <- kin_pca$x
+pc_plot <- qplot(U[, 1], U[, 2], xlab = 'PC 1', ylab = "PC 2", main = "aspen kinship PCA") + coord_equal()
+print(pc_plot)
+```
+The percent variance explained by the main PCs can be seen below. PCs 1 and 2 each explain ~10% of the variance
+```{r, echo=FALSE}
+summ <- summary(kin_pca)
+summ
+```
+***
+That's it for an initial analysis. It is best to keep in mind that the heritability estimates apply to this set of samples in this particular population and might not reflect heritability of phenology in other populations. 

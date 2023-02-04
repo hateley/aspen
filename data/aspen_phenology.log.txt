@@ -1,0 +1,28 @@
+##
+## GEMMA Version    = 0.98.1 (2018-12-10)
+## Build profile    = 
+## GCC version      = 8.2.0
+## GSL Version      = 2.5
+## Eigen Version    = 3.3.5
+## OpenBlas         = OpenBLAS 0.3.2  - DYNAMIC_ARCH NO_AFFINITY Haswell MAX_THREADS=6
+##   arch           = Haswell
+##   threads        = 4
+##   parallel type  = threaded
+##
+## Command Line Input = gemma -bfile aspen_phenology -gk 1 -o aspen_phenology 
+##
+## Date = Fri Dec  3 15:35:59 2021
+##
+## Summary Statistics:
+## number of total individuals = 488
+## number of analyzed individuals = 366
+## number of covariates = 1
+## number of phenotypes = 1
+## number of total SNPs/var = 13680
+## number of analyzed SNPs/var = 1797
+##
+## Computation Time:
+## total computation time = 0.0259791 min 
+## computation time break down: 
+##      time on calculating relatedness matrix = 0.0103759 min 
+##

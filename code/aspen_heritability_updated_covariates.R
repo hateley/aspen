@@ -1,5 +1,5 @@
 # Author: Dr. Shannon Hateley
-# Date: Fall 2021 - Spring 2022
+# Date: Summer 2022 - Spring 2023
 # Project: Aspen Phenology with Dr. Benjamin Blonder
 
 ###############################
@@ -10,11 +10,14 @@
 # 2) map residuals
 #    e phenology resids = u + bx + Z(pop struc) + e (using TCGA)
 #
-# phenology = u + bx + pcs + cov. + .. e 
+#
 #
 # sets to run heritability on:
 # diploids, triploids, all
 # all aspen coverage, greater than 25%, 50%
+# added also 30 and 70 for resubmission of paper in Jan 2023
+# code writes to jan_2023 folders to reflect updates 
+# I know I shouldn't hard code this stuff but ya know what, I'm on a deadline.
 
 
 ###############################
@@ -25,9 +28,9 @@ library(tidyverse)
 library(caret) #makes one-hot encoding easy
 library(reshape2) #for melt
 library(stringr)
-library(cowplot)
 library(ggpubr)
 library(grid)
+library(cowplot)
 theme_set(theme_cowplot())
 
 
@@ -40,11 +43,12 @@ names <- colnames(phenology)
 
 site_code <- phenology[1]
 vars <- phenology[-1] #data to one-hot encode
+
 pheno_coded <- cbind(site_code, data.frame(predict(
                     dummyVars("~.", data=vars, fullRank=F), newdata = vars))
                     #put results from one-hot encoding into dataframe
                     #set fullRank=F for the covariate analaysis;
-                    #later fullRank=T for outputting covariates, since we want to avoid fully correlated covariates
+                    #later fullRank=T for outputting covariates, to avoid fully correlated covariates
                      )
 
 
@@ -125,23 +129,13 @@ ploidy <- ploidy %>% mutate(ploidy_group = case_when(
   est_ploidy == "Ambiguous" ~ Cytotype,
   TRUE ~ Cytotype))
 
-#make a diploid and a triploid list
-
-diploid_samples <- grenepipe_samples %>% 
-  filter(sample %in% filter(ploidy, ploidy_group=="Diploid")$id) %>% arrange(sample)
-write_tsv(diploid_samples, "variant_calling/diploids/samples.diploid.tsv")
-
-triploid_samples <- grenepipe_samples %>% 
-  filter(sample %in% filter(ploidy, ploidy_group!="Diploid")$id) %>% arrange(sample)
-write_tsv(triploid_samples, "variant_calling/triploids/samples.trip_or_ambiguous.tsv")
-
-
 
 ##############################################################
 # linear regression of the covariates
 ##############################################################
 
-# make sure one-hot encoding removes a level (full rank)
+# reset the pheno_coded file to make 
+# sure one-hot encoding removes a level (full rank)
 pheno_coded <- cbind(site_code, data.frame(predict(
   dummyVars("~.", data=vars, fullRank=T), newdata = vars))
   )
@@ -152,7 +146,9 @@ pheno_coded  <- pheno_coded %>% mutate(geneticSexIDM = ifelse(is.na(geneticSexID
 
 #pick the covariates I want to regress out
 
-
+# I call these new covariates because they weren't included in the initial analysis
+# however we added them in later so this analysis would match that performed by Ben
+# using the random forest to find meaningful covariates
 new_covars <- c("tmax", "snowmelt", "sm_runs", "sm_q01")
 new_covars <- lapply(new_covars, function(x) colnames(pheno_coded[grep(
   x, colnames(pheno_coded))])) %>% unlist()
@@ -186,7 +182,7 @@ gathered_df <- gathered_df %>% reduce(left_join, by=c('Site_Code', 'year'))
 pheno_coded_stub <- pheno_coded %>% select(colnames(pheno_coded[grep("pheno", colnames(pheno_coded), invert = T)]))
 long_coded_df <- left_join(pheno_coded_stub, gathered_df, on="Site_Code")
 
-# fix the yearly values to be relative to phenol year
+# fix the yearly values to be relative to measured phenology year
 
 #tmax is pretty much the same for everything:
 #> pheno_coded %>% select(contains('tmax')) %>% apply(2, max)
@@ -288,7 +284,7 @@ plot_cov2phenol_relationship <- function(long_df){
   df_list = list()
   for (p in c("GSL", "OGI", "OGMn", "EVImax")){
     print(p)
-    df <- long_df %>% select(c(1:18, p, 23:42))
+    df <- long_df %>% select(c(1:18, p, 23:41))
     df.gathered <- df %>%
       as_tibble() %>%
       gather(key = "variable", value = "value",
@@ -393,12 +389,23 @@ df_subsets[['cover25_diploid']] <- long_coded_df %>% filter(ploidy_group=='Diplo
 df_subsets[['cover25_nodips']] <- long_coded_df %>% filter(ploidy_group!='Diploid' & aspen_cover >=.25)
 df_subsets[['cover25_triploid']] <- long_coded_df %>% filter(ploidy_group=='Triploid' & aspen_cover >=.25)
 
+#remove samples with aspen cover less than 30%
+df_subsets[['cover30_all']] <- long_coded_df %>% filter(aspen_cover >=.30)
+df_subsets[['cover30_diploid']] <- long_coded_df %>% filter(ploidy_group=='Diploid' & aspen_cover >=.30)
+df_subsets[['cover30_nodips']] <- long_coded_df %>% filter(ploidy_group!='Diploid' & aspen_cover >=.30)
+df_subsets[['cover30_triploid']] <- long_coded_df %>% filter(ploidy_group=='Triploid' & aspen_cover >=.30)
+
 #remove samples with aspen cover less than 50%
 df_subsets[['cover50_all']] <- long_coded_df %>% filter(aspen_cover >=.50)
 df_subsets[['cover50_diploid']] <- long_coded_df %>% filter(ploidy_group=='Diploid' & aspen_cover >=.50)
 df_subsets[['cover50_nodips']] <- long_coded_df %>% filter(ploidy_group!='Diploid' & aspen_cover >=.50)
 df_subsets[['cover50_triploid']] <- long_coded_df %>% filter(ploidy_group=='Triploid' & aspen_cover >=.50)
 
+#remove samples with aspen cover less than 70%
+df_subsets[['cover70_all']] <- long_coded_df %>% filter(aspen_cover >=.70)
+df_subsets[['cover70_diploid']] <- long_coded_df %>% filter(ploidy_group=='Diploid' & aspen_cover >=.70)
+df_subsets[['cover70_nodips']] <- long_coded_df %>% filter(ploidy_group!='Diploid' & aspen_cover >=.70)
+df_subsets[['cover70_triploid']] <- long_coded_df %>% filter(ploidy_group=='Triploid' & aspen_cover >=.70)
 
 
 ## assign the regressors
@@ -408,6 +415,10 @@ regressors <- colnames(long_coded_df[c(5:12, 14:18, 24:42)]) %>% paste(collapse=
 ####################################################################################
 ## do the regression
 ## running on all samples regardless of available genotype to benefit from larger dataset
+
+# throw out dataframes with no data
+df_subsets <- discard(df_subsets, ~nrow(.)==0)
+
 lm_func <- function(df){
   
   lm_df <- list()
@@ -420,15 +431,15 @@ lm_func <- function(df){
 res <- lapply(df_subsets, function(x) lm_func(x))
 
 
-
 # write out the lm summary and plots for each condition and subset
-for (i in seq(1,12)){
-  subset <- names(res)[i]
-  print(subset)
-  for (j in seq(1,4)){
+for (i in seq(1, length(res))){
+  
+  res_subset <- names(res)[i]
+  print(res_subset)
+  for (j in seq(1, length(names(res[[res_subset]])))){
     pheno <- names(res[[i]][j])
     print(pheno)
-    pdf(sprintf("results/covariate_residuals/regression_plots_updated/%s_%s.pdf", subset, pheno))
+    pdf(sprintf("results/covariate_residuals/regression_plots_updated/jan_2023/%s_%s.pdf", res_subset, pheno))
     par(mfrow=c(2,2)) # Change the panel layout to 2 x 2
     plot(res[[i]][[j]])
     par(mfrow=c(1,1)) # Change back to 1 x 1
@@ -437,26 +448,25 @@ for (i in seq(1,12)){
 }
 
 
-
 # write out the residuals for each condition and subset
-for (i in seq(1,12)){
-  subset <- names(res)[i]
-  print(subset)
-  for (j in seq(1,4)){
+for (i in seq(1, length(res))){ #for each subset of trees (coverage and ploidy)
+  res_subset <- names(res)[i]
+  print(res_subset)
+  for (j in seq(1, length(names(res[[res_subset]])))){ #for each phenology measurement)
     pheno <- names(res[[i]][j])
     print(pheno)
-    residuals <- res[[i]][[j]]$residuals
-    inds <- as.numeric(names(residuals))
-    sitecode <- df_subsets[[i]]$Site_Code
-    phenval <- df_subsets[[i]][[pheno]]
-    sitecodes2use <- sitecode[inds]
-    phenval2use <- phenval[inds]
+    residuals <- res[[i]][[j]]$residuals #get all the residual values from the lin reg for this subset/phenology 
+    inds <- as.numeric(names(residuals)) #get sample indexes to get their names
+    sitecode <- df_subsets[[i]]$Site_Code #get all sample names in the subset
+    phenval <- df_subsets[[i]][[pheno]] #get the phenology measurements for all samples in the subset
+    sitecodes2use <- sitecode[inds] #get the names for the samples that actually have phenology measurement value and hence a residual value
+    phenval2use <- phenval[inds] #get phenology measurements for the samples that have a measurement
     resid_df <- tibble(fam_id = 0,
                        ind_id = sitecodes2use,
                        residuals =residuals,
-                       phenval = phenval2use)
+                       phenval = phenval2use) #combine these values
     write_tsv(resid_df, 
-              sprintf("results/covariate_residuals/updated/%s_%s.phen", subset, pheno),
+              sprintf("results/covariate_residuals/updated/jan_2023/%s_%s.phen", res_subset, pheno),
               col_names = F)
   }
 }
@@ -468,37 +478,68 @@ for (i in seq(1,12)){
 
 
 # read in results from gcta greml
-gcta_files <- list.files(path = "results/gcta_greml/updated/", pattern = "*.hsq")
+gcta_files <- list.files(path = "results/gcta_greml/updated/jan_2023/", pattern = "*.hsq")
 
 gcta_df <- do.call(rbind, lapply(gcta_files, function(x) cbind(
-  read_tsv(paste("results/gcta_greml/updated/", x, sep="")), stub=x)))
+  read_tsv(paste("results/gcta_greml/updated/jan_2023/", x, sep=""), col_types = 
+             cols(
+               Source = col_character(),
+               Variance = col_double(),
+               SE = col_double())),
+           stub=x)))
 
 gcta_df <- gcta_df %>% separate(stub, into=c("cover", "ploidy", "rest"), sep="_")
 gcta_df <- gcta_df %>% separate(rest, into=c("phenology", "val_used"), sep="[.]")
-gcta_df <- gcta_df %>% filter(cover != "coverany")
+
+gcta_df <- gcta_df %>% filter(cover != "coverany") 
+
+sample_num <- gcta_df %>% filter(Source=="n") %>% select(-SE)
+colnames(sample_num) <- c('sample_size', 'n', "cover", "ploidy", "phenology", "val_used")
+
+get_ci <- function(df){
+  df <- df %>% 
+    mutate(
+      t_score = qt(p=0.05/2, (n-1), lower.tail = F) %>% round(., digits=2),
+      margin_error = round(t_score * SE, digits=2),
+      upper_bound = ifelse(
+        (Variance + margin_error) <=1, round((Variance + margin_error), digits=2), 1),
+      lower_bound = ifelse(
+        (Variance - margin_error) >=0, round((Variance - margin_error), digits=2), 0))
+  return(df)
+}
+
 
 val_used_resid <- gcta_df %>% 
-  filter(val_used == 'resids' & Source == 'V(G)/Vp' & ploidy != 'nodips')
+  filter(val_used == 'resids' & Source == 'V(G)/Vp' & ploidy != 'nodips') %>%
+  left_join(., sample_num, by=c("cover", "ploidy", "phenology", "val_used")) %>% 
+  select(-sample_size) %>%
+  mutate(Variance = round(Variance, digits=2)) %>%
+  get_ci()
+
 val_used_full <- gcta_df %>% 
-  filter(val_used == 'pheno' & Source == 'V(G)/Vp' & ploidy != 'nodips')
+  filter(val_used == 'pheno' & Source == 'V(G)/Vp' & ploidy != 'nodips') %>%
+  left_join(., sample_num, by=c("cover", "ploidy", "phenology", "val_used")) %>% 
+  select(-sample_size) %>%
+  mutate(Variance = round(Variance, digits=2)) %>%
+  get_ci()
 
 plot_resid <- ggplot(val_used_resid, aes(x=ploidy, y=Variance, color=cover)) +
   geom_point(alpha=0.5, size=3, position=position_dodge(width=0.5)) +
-  geom_errorbar(aes(ymin=(Variance-SE), ymax=(Variance+SE)),
+  geom_errorbar(aes(ymin=lower_bound, ymax=upper_bound),
                     position=position_dodge(width=0.5)) +
   facet_grid(~phenology, switch="both") +
-  theme(axis.text.x = element_text(angle = 75, hjust=1)) + 
   theme_minimal_hgrid() +
+  theme(axis.text.x = element_text(angle = 75, hjust=1)) + 
   labs(y="Vg/Vp", x='covariate residuals') +
   coord_cartesian(ylim = c(0, 1))
 
 plot_full <- ggplot(val_used_full, aes(x=ploidy, y=Variance, color=cover)) +
   geom_point(alpha=0.5, size=3, position=position_dodge(width=0.5)) +
-  geom_errorbar(aes(ymin=(Variance-SE), ymax=(Variance+SE)), 
+  geom_errorbar(aes(ymin=lower_bound, ymax=upper_bound), 
                 position=position_dodge(width=0.5)) +
   facet_grid(~phenology, switch="both") +
-  theme(axis.text.x = element_text(angle = 75, hjust=1)) + 
   theme_minimal_hgrid() +
+  theme(axis.text.x = element_text(angle = 75, hjust=1)) + 
   labs(y="Vg/Vp", x='full phenology') +
   coord_cartesian(ylim = c(0, 1))
 
@@ -507,7 +548,7 @@ plot <- ggarrange(plot_resid, plot_full, ncol=2, common.legend=T, legend="bottom
 annotate_figure(plot, top=textGrob("Heritability Estimates", 
                                    gp=gpar(fontsize=20, font=8)))
 
-ggsave("results/gcta_greml/plots/updated_heritability.pdf", plot,
+ggsave("results/gcta_greml/plots/jan_2023/heritability.pdf", plot,
        width=10, height=7, units="in")
 
 #####
@@ -524,9 +565,8 @@ tmp2 <- long_coded_df %>% filter(
 #################################################################
 
 paper_df <- val_used_resid %>%
-  filter(cover %in% c("cover25", "cover50")) %>%
   select(-val_used)
-write_tsv(paper_df, "results/gcta_greml/updated/paper_data_updated.tsv")
+write_tsv(paper_df, "results/gcta_greml/updated/jan_2023/paper_data_jan_2023.tsv")
 
 
 # set up environment
@@ -534,20 +574,41 @@ library(tidyverse)
 library(cowplot)
 theme_set(theme_cowplot())
 
-paper_df <- read_tsv("results/gcta_greml/updated/paper_data_updated.tsv")
+paper_df <- read_tsv("results/gcta_greml/updated/jan_2023/paper_data_jan_2023.tsv")
 
-plot_resid <- ggplot(paper_df, aes(x=ploidy, y=Variance, color=cover)) +
-  geom_point(alpha=0.5, size=3, position=position_dodge(width=0.5)) +
-  geom_errorbar(aes(ymin=(Variance-SE), ymax=(Variance+SE)),
-                position=position_dodge(width=0.5)) +
-  facet_grid(~phenology, switch="both") +
-  theme(axis.text.x = element_text(angle = 75, hjust=1)) + 
-  labs(y="Vg/Vp", x='covariate residuals', title="Heritability Estimates") +
-  coord_cartesian(ylim = c(0, 1))
+plot_resid <- function(df){
+  g<- ggplot(df, aes(x=ploidy, y=Variance, color=cover)) +
+      geom_point(alpha=0.5, size=3, position=position_dodge(width=0.5)) +
+      geom_errorbar(aes(ymin=lower_bound, ymax=upper_bound),
+                    position=position_dodge(width=0.5)) +
+      geom_text(aes(label=n, y=upper_bound), position=position_dodge(width=0.5), vjust=(-0.25)) +
+      facet_grid(~phenology, switch="both") +
+      theme(axis.text.x = element_text(angle = 75, hjust=1)) + 
+      labs(y="Vg/Vp", x='covariate residuals', title="Heritability Estimates") +
+      coord_cartesian(ylim = c(0, 1))
+  return(g)
+  }
 
-plot_resid
 
-ggsave("results/gcta_greml/plots/heritability_25and50_updated.pdf", plot_resid,
+plot_resid(paper_df)
+
+tmp25 <- paper_df %>% filter(cover =='cover25')
+g_tmp25 <-plot_resid(tmp25)
+g_tmp25
+ggsave("results/gcta_greml/plots/jan_2023/25.png", g_tmp25, width = 10, height = 10, units = "in")
+
+tmp2530 <- paper_df %>% filter(cover %in% c('cover25', 'cover30'))
+g_tmp2530 <-plot_resid(tmp2530)
+g_tmp2530
+ggsave("results/gcta_greml/plots/jan_2023/2530.png", g_tmp2530, width = 10, height = 10, units = "in")
+
+tmp5070 <- paper_df %>% filter(cover %in% c('cover50', 'cover70'))
+g_tmp5070 <-plot_resid(tmp5070)
+g_tmp5070
+ggsave("results/gcta_greml/plots/jan_2023/2530.png", g_tmp5070, width = 10, height = 10, units = "in")
+
+
+ggsave("results/gcta_greml/plots/jan_2023/heritability_residuals.pdf", plot_resid,
        width=10, height=7, units="in")
 
 

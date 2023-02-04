@@ -438,7 +438,12 @@ ReadGRMBin=function(prefix, AllN=F, size=4){
   return(list(diag=grm[i], off=grm[-i], id=id, N=N))
 }
 
+# way better:
+library(OmicKriging)
 grm <- ReadGRMBin("data/gcta/aspen_phenology")
+
+
+grm<- read_GRMBin("data/gcta/aspen_phenology.grm")
 # I actually went with .005 and removed the other files
 #grm_01 <- ReadGRMBin("data/gcta/aspen_phenology_01")
 #grm_005 <- ReadGRMBin("data/gcta/aspen_phenology_005")
