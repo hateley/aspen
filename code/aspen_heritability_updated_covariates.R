@@ -590,7 +590,7 @@ plot_resid <- function(df){
   }
 
 
-plot_resid(paper_df)
+g_resids <- plot_resid(paper_df)
 
 tmp25 <- paper_df %>% filter(cover =='cover25')
 g_tmp25 <-plot_resid(tmp25)
@@ -605,11 +605,11 @@ ggsave("results/gcta_greml/plots/jan_2023/2530.png", g_tmp2530, width = 10, heig
 tmp5070 <- paper_df %>% filter(cover %in% c('cover50', 'cover70'))
 g_tmp5070 <-plot_resid(tmp5070)
 g_tmp5070
-ggsave("results/gcta_greml/plots/jan_2023/2530.png", g_tmp5070, width = 10, height = 10, units = "in")
+ggsave("results/gcta_greml/plots/jan_2023/5070.png", g_tmp5070, width = 10, height = 10, units = "in")
 
 
-ggsave("results/gcta_greml/plots/jan_2023/heritability_residuals.pdf", plot_resid,
-       width=10, height=7, units="in")
+ggsave("results/gcta_greml/plots/jan_2023/heritability_residuals.png", g_resids,
+       width=10, height=10, units="in")
 
 
 

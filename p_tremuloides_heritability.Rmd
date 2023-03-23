@@ -1,12 +1,14 @@
 ---
 title: "Heritability of P. tremuloides phenology variables"
-
 author: "Shannon Hateley, PhD"
 date: "Spring 2022"
-output: html_notebook
+output:
+  html_notebook
 ---
 
 This analysis is part of the study by Dr. Ben Blonder et al. on how "legacy effects of drought, heat, and snowmelt interact with cytotype and sex to determine phenology in quaking aspen (Populus tremuloides)."
+
+Also though, this is using only the initial set of environtmental variables. In the final analysis we also look at snowmelt, etc. These variables remain the same but are a subset of the final results.
 
 ## Main Analysis
 **In short**:  
@@ -39,7 +41,7 @@ pheno_coded <- cbind(phenology[1], data.frame(predict(
                     dummyVars("~.", data=phenology[-1], fullRank=F), newdata = phenology[-1]))
                     )
 
-kinship <- read_tsv("data/GEMMA_files/aspen_phenology.cXX.txt", col_names = F)
+kinship <- read_tsv("data/aspen_phenology.cXX.txt", col_names = F)
 ploidy_est <- read_csv("aspenDir/estploidy_pp98.csv", skip=1, 
                        col_names= c("var1", "id", "trip", "dip", "est_ploidy"))
 ploidy_est <- ploidy_est %>%  mutate(Site_Code = str_split(id, "_", simplify = T)[,1])
@@ -78,7 +80,7 @@ ploidy_est <- ploidy_est %>% mutate(est_mismatch = if(n_distinct(est_ploidy)==1)
 Samples were subset to the 488 with genotype information. From these, we generated a genetic relatedness matrix using the 13,680 high-quality variants from the RAD-Seq data aligned to the assembled RAD-Seq contigs and filtered to variants with an allele frequency >= 0.5%. This resulted in 6,173 valid markers for the relatedness calculation. GCTA's GREML was run on the sample subsets, in one iteration using the residuals as the phenotype and in another using the full phenology variable measurements.
 
 ### Results
-```{r, echo=FALSE}
+```{r, echo=FALSE, message=FALSE, warning=F, error=F}
 
 # read in results from gcta greml
 gcta_files <- list.files(path = "results/gcta_greml/", pattern = "*.hsq")
@@ -129,7 +131,7 @@ annotate_figure(plot, top=textGrob("Heritability Estimates",
 val_used_resid <- gcta_df %>% 
   filter(val_used == 'resids' & Source %in% (c("V(G)", "V(E)", "Vp")) & ploidy != 'nodips')
 val_used_full <- gcta_df %>% 
-  filter(val_used == 'phenos' & SSource %in% (c("V(G)", "V(E)", "Vp")) & ploidy != 'nodips')
+  filter(val_used == 'phenos' & Source %in% (c("V(G)", "V(E)", "Vp")) & ploidy != 'nodips')
 
 plot_resid <- ggplot(val_used_resid, aes(x=ploidy, y=Variance, shape=cover, color=Source)) +
   geom_point(alpha=0.5, size=3) +
